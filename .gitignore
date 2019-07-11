@@ -1,3 +1,4 @@
-/yolov3.weights
-/yolov2-tiny.weights
-
+/YOLOv3-608/yolov3.weights
+/YOLOv3-320/yolov3.weights
+/YOLOv2-tiny/yolov2-tiny.weights
+/YOLOv3-tiny/yolov3-tiny.weights
