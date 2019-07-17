@@ -86,9 +86,27 @@ def counting_vehicle(input_path, output_path, model_cfg, name_list
         outs = net.foward(get_output_layers(net))
 
         for out in outs:
-            
-
-
+            for detection in out:
+                scores = detection[5:]
+            # get the highest score to determine its label
+            class_id = np.argmax(scores)
+            # make sure we only choose vehicle
+            if class_id not in [0,1,2,3,7]:
+                continue
+            else:
+                # score of that object, make sure more than 50% correct label
+                confidence = scores[class_id]
+                if confidence > thresh_prop:
+                    center_x = int(detection[0] * Width)
+                    center_y = int(detection[1] * Height)
+                    w = int(detection[2] * Width)
+                    h = int(detection[3] * Height)
+                    # remember it return x_center and y_center, not x,y, so we need to find x,y
+                    x = center_x - w / 2
+                    y = center_y - h / 2
+                tracker = dlib.correlation_tracker()
+				rect = dlib.rectangle(x, y, x+w, y+h)
+				tracker.start_track(rgb, rect)
 
 
         if cv2.waitKey(1) & 0xFF == ord('q') or not ret:
