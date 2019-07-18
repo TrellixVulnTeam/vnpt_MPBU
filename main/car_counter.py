@@ -1,13 +1,23 @@
 from matplotlib import pyplot as plt 
-from centroidtracker import CentroidTracker
-from trackableobject import TrackableObject
+from main.centroidtracker import CentroidTracker
+from main.trackableobject import TrackableObject
 import numpy as np
 import cv2
 import dlib
 import imutils
 
+def get_output_layers(net):
+    '''
+    get all output layer names: with yolov3 is yolo_82, 94 and 106
+    ''' 
+    layer_names = net.getLayerNames()
+    
+    output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
+
+    return output_layers
+
 def counting_vehicle(input_path, output_path, model_cfg, name_list,
-                    model_weight, skip_frame, thresh_prop, horizon):
+                    model_weight, skip_frame, thresh_prop):
     '''
     Parameters:
         + video_path: 
@@ -55,7 +65,7 @@ def counting_vehicle(input_path, output_path, model_cfg, name_list,
     W = None
     H = None
 
-    ct = CentroidTracker(maxDisappeared=20, maxDistance=30)
+    ct = CentroidTracker(maxDisappeared=10, maxDistance=30)
     # trackers = []
     trackableObjects = {}
 
@@ -84,33 +94,35 @@ def counting_vehicle(input_path, output_path, model_cfg, name_list,
             trackers = []
             blob = cv2.dnn.blobFromImage(frame, scale, (416, 416), (0,0,0), True, crop =False)
             net.setInput(blob)
-            outs = net.foward(get_output_layers(net))
+            outs = net.forward(get_output_layers(net))
 
             for out in outs:
                 for detection in out:
                     scores = detection[5:]
-                # get the highest score to determine its label
-                class_id = np.argmax(scores)
-                # make sure we only choose vehicle
-                if class_id not in [0,1,2,3,7]:
-                    continue
-                else:
-                    # score of that object, make sure more than 50% correct label
-                    confidence = scores[class_id]
-                    if confidence > thresh_prop:
-                        center_x = int(detection[0] * Width)
-                        center_y = int(detection[1] * Height)
-                        w = int(detection[2] * Width)
-                        h = int(detection[3] * Height)
-                        # remember it return x_center and y_center, not x,y, so we need to find x,y
-                        x = center_x - w / 2
-                        y = center_y - h / 2
-                    tracker = dlib.correlation_tracker()
-                    rect = dlib.rectangle(x, y, x+w, y+h)
-                    tracker.start_track(rgb, rect)
-                    trackers.append(tracker)
+                    # get the highest score to determine its label
+                    class_id = np.argmax(scores)
+                    # make sure we only choose vehicle
+                    if class_id not in [0,1,2,3,7]:
+                        continue
+                    else:
+                        # score of that object, make sure more than 50% correct label
+                        confidence = scores[class_id]
+                        if confidence > thresh_prop:
+                            center_x = int(detection[0] * W)
+                            center_y = int(detection[1] * H)
+                            w = int(detection[2] * W)
+                            h = int(detection[3] * H)
+                            # remember it return x_center and y_center, not x,y, so we need to find x,y
+                            x = int(center_x - w / 2)
+                            y = int(center_y - h / 2)
+                        elif confidence <= thresh_prop:
+                            continue
+                        tracker = dlib.correlation_tracker()
+                        rect = dlib.rectangle(x, y, x+w, y+h)
+                        tracker.start_track(rgb, rect)
+                        trackers.append(tracker)
         else:
-            for tracker in tracks:
+            for tracker in trackers:
                 status = "Tracking"
                 tracker.update(rgb)
                 pos = tracker.get_position()
@@ -121,35 +133,34 @@ def counting_vehicle(input_path, output_path, model_cfg, name_list,
                 endX = int(pos.right())
                 endY = int(pos.bottom())
                 rects.append((startX, startY, endX, endY))
-        cv2.line(frame, (0, horizon), (W, horizon), (0, 255, 255), 2)
+        cv2.line(frame, (0, H//2), (W, H//2), (0, 255, 255), 2)
         objects = ct.update(rects)
         for (objectID, centroid) in objects.items():
-    		
             to = trackableObjects.get(objectID, None)
 
             if to is None:
                 to = TrackableObject(objectID, centroid)
             else:
-                y = [c[1] for c in to.centroids]
+                y = [c[1] for c in to.centroids]       
                 direction = centroid[1] - np.mean(y)
                 to.centroids.append(centroid)
-
-                # check to see if the object has been counted or not
-                if not to.counted:
-                    # if the direction is negative (indicating the object
-                    # is moving up) AND the centroid is above the center
-                    # line, count the object
-                    if direction < 0 and centroid[1] < H // 2:
-                        totalUp += 1
-                        to.counted = True
-                    elif direction > 0 and centroid[1] > H // 2:
-    					totalDown += 1
-					to.counted = True
+                if direction > 0.001:
+                    # check to see if the object has been counted or not
+                    if not to.counted:
+                        # if the direction is negative (indicating the object
+                        # is moving up) AND the centroid is above the center
+                        # line, count the object
+                        if direction < 0 and centroid[1] < H // 2:
+                            totalUp += 1
+                            to.counted = True
+                        elif direction > 0 and centroid[1] > H // 2:
+                            totalDown += 1
+                            to.counted = True
             trackableObjects[objectID] = to
             text = "ID {}".format(objectID)
-		    cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10),
-			        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-		    cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
+            cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
         info = [
         ("Up", totalUp),
         ("Down", totalDown),
@@ -162,8 +173,11 @@ def counting_vehicle(input_path, output_path, model_cfg, name_list,
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
         
         cv2.imshow("Frame", frame)
-	    key = cv2.waitKey(1) & 0xFF
+        totalFrames += 1
         if cv2.waitKey(1) & 0xFF == ord('q') or not ret:
             break
-        totalFrames += 1
-cv2.destroyAllWindows()
+    cap.release()
+    cv2.destroyAllWindows()
+counting_vehicle(input_path="C:/Users/TobyCurtis/Desktop/front.avi",output_path=None, name_list="coco.names",
+                model_cfg="YOLOv3-320/yolov3.cfg",model_weight="YOLOv3-320/yolov3.weights", 
+                skip_frame=15, thresh_prop= 0.3)
