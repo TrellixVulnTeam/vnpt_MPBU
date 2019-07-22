@@ -39,6 +39,9 @@ class CentroidTracker:
 	def update(self, rects):
 		# check to see if the list of input bounding box rectangles
 		# is empty
+		'''
+		Warning
+		'''
 		if len(rects) == 0:
 			# loop over any existing tracked objects and mark them
 			# as disappeared
